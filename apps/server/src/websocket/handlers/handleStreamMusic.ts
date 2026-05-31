@@ -1,5 +1,5 @@
 import { IS_DEMO_MODE } from "@/demo";
-import { generateAudioFileName, uploadBytes } from "@/lib/r2";
+import { generateAudioFileName, saveAudioFile } from "@/lib/localStorage";
 import { globalManager } from "@/managers";
 import { MUSIC_PROVIDER_MANAGER } from "@/managers/MusicProviderManager";
 import { sendBroadcast } from "@/utils/responses";
@@ -40,14 +40,9 @@ export const handleStreamMusic: HandlerFunction<ExtractWSRequestFrom["STREAM_MUS
   });
 
   try {
-    // Get the stream URL from the music provider
+    // Get the stream URL from the music provider (decodes manifest)
     const streamResponse = await MUSIC_PROVIDER_MANAGER.stream(message.trackId);
-
-    if (!streamResponse.success) {
-      throw new Error("Failed to get stream URL");
-    }
-
-    const streamUrl = streamResponse.data.url;
+    const streamUrl = streamResponse.url;
 
     // Use provided track name or fallback to track ID
     const originalName = message.trackName ?? `track-${message.trackId}`;
@@ -56,27 +51,27 @@ export const handleStreamMusic: HandlerFunction<ExtractWSRequestFrom["STREAM_MUS
     console.log(`Downloading audio from: ${streamUrl}`);
     const response = await fetch(streamUrl);
 
-    // Generate a unique filename for R2
-    const fileName = generateAudioFileName(`${originalName}.mp3`);
-
     if (!response.ok) {
       throw new Error(`Failed to download audio: ${response.status}`);
     }
 
+    // Generate a unique filename
+    const fileName = generateAudioFileName(`${originalName}.mp3`);
+
     // Get audio bytes
     const arrayBuffer = await response.arrayBuffer();
 
-    // Get content type from response headers, fallback to audio/mpeg
+    // Get content type from response headers
     const contentType = response.headers.get("content-type") ?? "audio/mpeg";
 
-    // Upload directly to R2
-    console.log(`Uploading to R2: room-${roomId}/${fileName}`);
-    const r2Url = await uploadBytes(arrayBuffer, roomId, fileName, contentType);
+    // Save to local filesystem
+    console.log(`Saving audio to local storage: room-${roomId}/${fileName}`);
+    const localUrl = await saveAudioFile(arrayBuffer, roomId, fileName, contentType);
 
-    // Add the audio source to the room and get updated sources list
-    const sources = room.addAudioSource({ url: r2Url });
+    // Add the audio source to the room
+    const sources = room.addAudioSource({ url: localUrl });
 
-    console.log(`Successfully uploaded track to R2: ${r2Url}`);
+    console.log(`Successfully saved track locally: ${localUrl}`);
     console.log(`Broadcasting new audio sources to room ${roomId}: ${sources.length} total sources`);
 
     // Broadcast to all room members that new audio is available

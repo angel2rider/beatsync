@@ -1,0 +1,77 @@
+{
+  "timestamp": 1780241100556,
+  "data": {
+    "rooms": {
+      "123456": {
+        "clientDatas": [
+          {
+            "joinedAt": 1780224425345,
+            "username": "prestigious-otter",
+            "clientId": "gMdIA5eahlcYM6yRCZDal",
+            "isAdmin": true,
+            "isCreator": false,
+            "rtt": 0.4767207540456771,
+            "compensationMs": 32,
+            "nudgeMs": 0,
+            "position": {
+              "x": 50,
+              "y": 25
+            },
+            "lastNtpResponse": 1780241098591,
+            "location": {
+              "flagEmoji": "🇮🇳",
+              "flagSvgURL": "/flags/in.svg",
+              "city": "Thiruvananthapuram",
+              "country": "India",
+              "region": "Kerala",
+              "countryCode": "IN"
+            }
+          },
+          {
+            "joinedAt": 1780240412732,
+            "username": "ambitious-cobra",
+            "clientId": "OO9YvXPEmtLrZL2bWQV_W",
+            "isAdmin": false,
+            "isCreator": false,
+            "rtt": 0.4160900337086396,
+            "compensationMs": 32,
+            "nudgeMs": 0,
+            "position": {
+              "x": 50,
+              "y": 75
+            },
+            "lastNtpResponse": 1780240426150,
+            "location": {
+              "flagEmoji": "🇮🇳",
+              "flagSvgURL": "/flags/in.svg",
+              "city": "Thiruvananthapuram",
+              "country": "India",
+              "region": "Kerala",
+              "countryCode": "IN"
+            }
+          }
+        ],
+        "audioSources": [
+          {
+            "url": "/audio-data/room-123456/Queen%20-%20Bohemian%20Rhapsody%20(Remastered%202011)___2026-05-31T10-48%3A25.166Z.mp3"
+          },
+          {
+            "url": "/audio-data/room-123456/The%20Weeknd%20-%20Blinding%20Lights___2026-05-31T10-50%3A35.350Z.mp3"
+          }
+        ],
+        "globalVolume": 1,
+        "lowPassFreq": 20000,
+        "playbackState": {
+          "type": "playing",
+          "audioSource": "/audio-data/room-123456/Queen%20-%20Bohemian%20Rhapsody%20(Remastered%202011)___2026-05-31T10-48%3A25.166Z.mp3",
+          "trackPositionSeconds": 0,
+          "serverTimeToExecute": 1780227328308.8066
+        },
+        "chat": {
+          "messages": [],
+          "nextMessageId": 1
+        }
+      }
+    }
+  }
+}

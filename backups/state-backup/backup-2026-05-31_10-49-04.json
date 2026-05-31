@@ -1,0 +1,51 @@
+{
+  "timestamp": 1780224544978,
+  "data": {
+    "rooms": {
+      "123456": {
+        "clientDatas": [
+          {
+            "joinedAt": 1780224425345,
+            "username": "prestigious-otter",
+            "clientId": "gMdIA5eahlcYM6yRCZDal",
+            "isAdmin": true,
+            "isCreator": false,
+            "rtt": 0.6038184693250839,
+            "compensationMs": 16,
+            "nudgeMs": 0,
+            "position": {
+              "x": 50,
+              "y": 25
+            },
+            "lastNtpResponse": 1780224543406,
+            "location": {
+              "flagEmoji": "🇮🇳",
+              "flagSvgURL": "/flags/in.svg",
+              "city": "Thiruvananthapuram",
+              "country": "India",
+              "region": "Kerala",
+              "countryCode": "IN"
+            }
+          }
+        ],
+        "audioSources": [
+          {
+            "url": "/audio-data/room-123456/Queen%20-%20Bohemian%20Rhapsody%20(Remastered%202011)___2026-05-31T10-48%3A25.166Z.mp3"
+          }
+        ],
+        "globalVolume": 1,
+        "lowPassFreq": 20000,
+        "playbackState": {
+          "type": "paused",
+          "audioSource": "",
+          "serverTimeToExecute": 0,
+          "trackPositionSeconds": 0
+        },
+        "chat": {
+          "messages": [],
+          "nextMessageId": 1
+        }
+      }
+    }
+  }
+}

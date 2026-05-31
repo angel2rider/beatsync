@@ -3,21 +3,87 @@ import { BackupManager } from "@/managers/BackupManager";
 import { getActiveRooms } from "@/routes/active";
 import { handleGetDefaultAudio } from "@/routes/default";
 import { handleServeAudio } from "@/routes/demoAudio";
+import { handleServeAudioData } from "@/routes/audio";
 import { handleDiscover } from "@/routes/discover";
 import { handleRoot } from "@/routes/root";
 import { handleStats } from "@/routes/stats";
-import { handleGetPresignedURL, handleUploadComplete } from "@/routes/upload";
+import { handleAudioUpload } from "@/routes/upload";
 import { handleWebSocketUpgrade } from "@/routes/websocket";
 import { handleClose, handleMessage, handleOpen } from "@/routes/websocketHandlers";
 import { corsHeaders, errorResponse } from "@/utils/responses";
 import type { WSData } from "@/utils/websocket";
 
+// --- Server configuration from env vars ---
+const PORT = parseInt(process.env.PORT ?? "8080", 10);
+const HOST = process.env.HOST ?? "0.0.0.0";
+
+/**
+ * Detect public IP address on startup (best-effort, non-blocking).
+ * Falls back to "<unknown>" if detection fails.
+ */
+let detectedPublicIp = "<unknown>";
+function detectPublicIp(): void {
+  const services = ["https://api.ipify.org?format=json", "https://ifconfig.me/ip", "https://api.ip.sb/ip"];
+
+  const tryService = async (index: number) => {
+    if (index >= services.length) {
+      console.warn("⚠ Could not detect public IP (no services responded)");
+      return;
+    }
+    try {
+      const res = await fetch(services[index], { signal: AbortSignal.timeout(5_000) });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const text = await res.text();
+      let ip: string;
+      try {
+        const parsed: Record<string, unknown> = JSON.parse(text) as Record<string, unknown>;
+        ip = (typeof parsed.ip === "string" ? parsed.ip : null) ?? text.trim();
+      } catch {
+        ip = text.trim();
+      }
+      // Validate it looks like an IP
+      if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
+        detectedPublicIp = ip;
+        console.log(`🌐 Detected public IP: ${ip}`);
+      } else {
+        await tryService(index + 1);
+      }
+    } catch {
+      await tryService(index + 1);
+    }
+  };
+
+  // Fire and forget
+  void tryService(0);
+}
+
+detectPublicIp();
+
+// --- Server info endpoint ---
+// Note: Not cached — detectedPublicIp may update asynchronously after startup
+function getServerInfo(): { serverUrl: string; wsUrl: string } {
+  const isSecure = process.env.SERVER_SECURE === "1" || process.env.SERVER_SECURE === "true";
+  const hostDisplay = detectedPublicIp !== "<unknown>" ? detectedPublicIp : HOST;
+  const proto = isSecure ? "https" : "http";
+  const wsProto = isSecure ? "wss" : "ws";
+  const portSuffix = PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
+
+  // If SERVER_HOST is explicitly set, use it (for custom domains)
+  const effectiveHost = process.env.SERVER_HOST ?? hostDisplay;
+
+  return {
+    serverUrl: `${proto}://${effectiveHost}${portSuffix}`,
+    wsUrl: `${wsProto}://${effectiveHost}${portSuffix}/ws`,
+  };
+}
+
 // Bun.serve with WebSocket support
 const server = Bun.serve<WSData>({
-  hostname: "0.0.0.0",
-  port: 8080,
+  hostname: HOST,
+  port: PORT,
   async fetch(req, server) {
     const url = new URL(req.url);
+    const pathname = url.pathname;
 
     // Handle CORS preflight requests
     if (req.method === "OPTIONS") {
@@ -25,25 +91,31 @@ const server = Bun.serve<WSData>({
     }
 
     try {
-      // Demo mode: serve local audio files
-      if (IS_DEMO_MODE && url.pathname.startsWith("/audio/")) {
-        return handleServeAudio(url.pathname);
+      // Demo mode: serve bundled audio files
+      if (IS_DEMO_MODE && pathname.startsWith("/audio/")) {
+        return handleServeAudio(pathname);
       }
 
-      switch (url.pathname) {
+      // Serve audio files from local filesystem (all modes)
+      if (pathname.startsWith("/audio-data/")) {
+        return handleServeAudioData(pathname);
+      }
+
+      switch (pathname) {
+        case "/api/server-info":
+          return new Response(JSON.stringify(getServerInfo()), {
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+
         case "/":
           return handleRoot(req);
 
         case "/ws":
           return handleWebSocketUpgrade(req, server);
 
-        case "/upload/get-presigned-url":
+        case "/upload":
           if (IS_DEMO_MODE) return errorResponse("Uploads disabled in demo mode", 403);
-          return handleGetPresignedURL(req);
-
-        case "/upload/complete":
-          if (IS_DEMO_MODE) return errorResponse("Uploads disabled in demo mode", 403);
-          return handleUploadComplete(req, server);
+          return handleAudioUpload(req, server);
 
         case "/stats":
           return handleStats();
@@ -80,19 +152,21 @@ const server = Bun.serve<WSData>({
   },
 });
 
-console.log(`HTTP listening on http://${server.hostname}:${server.port}`);
+console.log(`🚀 Beatsync server listening on ${HOST}:${PORT}`);
+console.log(`   Public URL:  ${getServerInfo().serverUrl}`);
+console.log(`   WebSocket:   ${getServerInfo().wsUrl}`);
 
 if (IS_DEMO_MODE) {
   console.log(`🔑 Admin secret: ${ADMIN_SECRET}`);
 }
 
 if (!IS_DEMO_MODE) {
-  // Restore state from backup on startup
+  // Restore state from local backup on startup
   BackupManager.restoreState().catch((error) => {
     console.error("Failed to restore state on startup:", error);
   });
 
-  // Set up periodic backups every minute (for Render persistence issues)
+  // Set up periodic backups every minute
   const BACKUP_INTERVAL_MS = 60 * 1000; // 1 minute
   setInterval(() => {
     console.log("🔄 Performing periodic backup at", new Date().toISOString());

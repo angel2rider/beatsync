@@ -6,5 +6,7 @@ module.exports = {
   interpreter: "bun", // Bun interpreter
   env: {
     PATH: `${process.env.HOME}/.bun/bin:${process.env.PATH}`, // Add "~/.bun/bin/bun" to PATH
+    PORT: "8080", // Can override via: PORT=9090 pm2 start pm2.config.js
+    HOST: "0.0.0.0",
   },
 };

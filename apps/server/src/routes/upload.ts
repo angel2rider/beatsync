@@ -1,38 +1,71 @@
-import type { UploadCompleteResponseType, UploadUrlResponseType } from "@beatsync/shared";
-import { GetUploadUrlSchema, UploadCompleteSchema } from "@beatsync/shared";
 import type { BunServer } from "@/utils/websocket";
-import {
-  createKey,
-  generateAudioFileName,
-  generatePresignedUploadUrl,
-  getPublicAudioUrl,
-  validateR2Config,
-} from "@/lib/r2";
+import { generateAudioFileName, saveAudioFile } from "@/lib/localStorage";
 import { globalManager } from "@/managers";
 import { errorResponse, jsonResponse, sendBroadcast } from "@/utils/responses";
 
-// New endpoint to get presigned upload URL
-export const handleGetPresignedURL = async (req: Request) => {
+// Single endpoint to handle direct audio file uploads
+export const handleAudioUpload = async (req: Request, server: BunServer) => {
   try {
     if (req.method !== "POST") {
       return errorResponse("Method not allowed", 405);
     }
 
-    // Validate R2 configuration first
-    const r2Validation = validateR2Config();
-    if (!r2Validation.isValid) {
-      console.error("R2 configuration errors:", r2Validation.errors);
-      return errorResponse("R2 configuration not complete", 500);
+    const contentType = req.headers.get("content-type") ?? "";
+
+    // Support both multipart/form-data and direct binary upload
+    let roomId: string;
+    let fileBuffer: ArrayBuffer;
+    let originalFileName: string;
+    let fileMimeType: string;
+
+    if (contentType.includes("multipart/form-data")) {
+      // Multipart upload
+      const formData = await req.formData();
+      const file = formData.get("file") as File | null;
+      roomId = (formData.get("roomId") as string) ?? "";
+
+      if (!file || !roomId) {
+        return errorResponse("Missing file or roomId in form data", 400);
+      }
+
+      fileBuffer = await file.arrayBuffer();
+      originalFileName = file.name;
+      fileMimeType = file.type || "audio/mpeg";
+    } else if (contentType.includes("application/json")) {
+      // JSON with base64 audio data (legacy support)
+      const body: unknown = await req.json();
+      const data = body as { roomId?: string; fileData?: string; fileName?: string; mimeType?: string };
+      roomId = data.roomId ?? "";
+
+      if (!data.fileData || !roomId) {
+        return errorResponse("Missing fileData or roomId", 400);
+      }
+
+      // Decode base64
+      const binaryString = atob(data.fileData);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      fileBuffer = bytes.buffer;
+      originalFileName = data.fileName ?? "audio.mp3";
+      fileMimeType = data.mimeType ?? "audio/mpeg";
+    } else {
+      // Assume direct binary upload with roomId in query or header
+      roomId = req.headers.get("X-Room-Id") ?? "";
+      if (!roomId) {
+        const url = new URL(req.url);
+        roomId = url.searchParams.get("roomId") ?? "";
+      }
+
+      if (!roomId) {
+        return errorResponse("Missing roomId. Provide via X-Room-Id header or ?roomId= query param.", 400);
+      }
+
+      fileBuffer = await req.arrayBuffer();
+      originalFileName = req.headers.get("X-File-Name") ?? `upload-${Date.now()}.mp3`;
+      fileMimeType = contentType || "audio/mpeg";
     }
-
-    const body: unknown = await req.json();
-    const parseResult = GetUploadUrlSchema.safeParse(body);
-
-    if (!parseResult.success) {
-      return errorResponse(`Invalid request data: ${parseResult.error.message}`, 400);
-    }
-
-    const { roomId, fileName, contentType } = parseResult.data;
 
     // Check if room exists
     const room = globalManager.getRoom(roomId);
@@ -41,52 +74,16 @@ export const handleGetPresignedURL = async (req: Request) => {
     }
 
     // Generate unique filename
-    const uniqueFileName = generateAudioFileName(fileName);
-    const r2Key = createKey(roomId, uniqueFileName);
+    const uniqueFileName = generateAudioFileName(originalFileName);
 
-    // Generate presigned URL for upload
-    const uploadUrl = await generatePresignedUploadUrl(roomId, uniqueFileName, contentType);
-    const publicUrl = getPublicAudioUrl(roomId, uniqueFileName);
+    // Save to local filesystem
+    console.log(`Saving uploaded audio: room-${roomId}/${uniqueFileName} (${fileBuffer.byteLength} bytes)`);
+    const localUrl = await saveAudioFile(fileBuffer, roomId, uniqueFileName, fileMimeType);
 
-    console.log(`Generated presigned URL for upload - R2 key: (${r2Key})`);
+    // Add audio source to room
+    const sources = room.addAudioSource({ url: localUrl });
 
-    const response: UploadUrlResponseType = {
-      uploadUrl,
-      publicUrl,
-    };
-
-    return jsonResponse(response);
-  } catch (error) {
-    console.error("Error generating upload URL:", error);
-    return errorResponse("Failed to generate upload URL", 500);
-  }
-};
-
-// Endpoint to confirm successful upload and broadcast to room
-export const handleUploadComplete = async (req: Request, server: BunServer) => {
-  try {
-    if (req.method !== "POST") {
-      return errorResponse("Method not allowed", 405);
-    }
-
-    const body: unknown = await req.json();
-    const parseResult = UploadCompleteSchema.safeParse(body);
-
-    if (!parseResult.success) {
-      return errorResponse(`Invalid request data: ${parseResult.error.message}`, 400);
-    }
-
-    const { roomId, publicUrl } = parseResult.data;
-
-    // Check if room exists
-    const room = globalManager.getRoom(roomId);
-    if (!room) {
-      return errorResponse("Room not found. The room may have been closed during upload.", 404);
-    }
-
-    const sources = room.addAudioSource({ url: publicUrl });
-
-    console.log(`✅ Audio upload completed - broadcasting to room ${roomId} new sources: ${JSON.stringify(sources)}`);
+    console.log(`✅ Audio upload completed - broadcasting to room ${roomId}`);
 
     // Broadcast to room that new audio is available
     sendBroadcast({
@@ -101,10 +98,9 @@ export const handleUploadComplete = async (req: Request, server: BunServer) => {
       },
     });
 
-    const response: UploadCompleteResponseType = { success: true };
-    return jsonResponse(response);
+    return jsonResponse({ success: true, url: localUrl });
   } catch (error) {
-    console.error("Error confirming upload:", error);
-    return errorResponse("Failed to confirm upload", 500);
+    console.error("Error handling upload:", error);
+    return errorResponse("Failed to upload audio", 500);
   }
 };

@@ -1,0 +1,98 @@
+{
+  "timestamp": 1780226617881,
+  "data": {
+    "rooms": {
+      "123456": {
+        "clientDatas": [
+          {
+            "joinedAt": 1780224425345,
+            "username": "prestigious-otter",
+            "clientId": "gMdIA5eahlcYM6yRCZDal",
+            "isAdmin": true,
+            "isCreator": false,
+            "rtt": 0.8913995747537293,
+            "compensationMs": 16,
+            "nudgeMs": 0,
+            "position": {
+              "x": 50,
+              "y": 25
+            },
+            "lastNtpResponse": 1780225642473,
+            "location": {
+              "flagEmoji": "🇮🇳",
+              "flagSvgURL": "/flags/in.svg",
+              "city": "Thiruvananthapuram",
+              "country": "India",
+              "region": "Kerala",
+              "countryCode": "IN"
+            }
+          }
+        ],
+        "audioSources": [
+          {
+            "url": "/audio-data/room-123456/Queen%20-%20Bohemian%20Rhapsody%20(Remastered%202011)___2026-05-31T10-48%3A25.166Z.mp3"
+          },
+          {
+            "url": "/audio-data/room-123456/The%20Weeknd%20-%20Blinding%20Lights___2026-05-31T10-50%3A35.350Z.mp3"
+          }
+        ],
+        "globalVolume": 1,
+        "lowPassFreq": 20000,
+        "playbackState": {
+          "type": "playing",
+          "audioSource": "/audio-data/room-123456/Queen%20-%20Bohemian%20Rhapsody%20(Remastered%202011)___2026-05-31T10-48%3A25.166Z.mp3",
+          "trackPositionSeconds": 0,
+          "serverTimeToExecute": 1780224860000.5742
+        },
+        "chat": {
+          "messages": [],
+          "nextMessageId": 1
+        }
+      },
+      "961724": {
+        "clientDatas": [
+          {
+            "joinedAt": 1780224554848,
+            "username": "passionate-hawk",
+            "clientId": "OO9YvXPEmtLrZL2bWQV_W",
+            "isAdmin": true,
+            "isCreator": false,
+            "rtt": 0,
+            "compensationMs": 16,
+            "nudgeMs": 0,
+            "position": {
+              "x": 50,
+              "y": 25
+            },
+            "lastNtpResponse": 1780226617879,
+            "location": {
+              "flagEmoji": "🇮🇳",
+              "flagSvgURL": "/flags/in.svg",
+              "city": "Thiruvananthapuram",
+              "country": "India",
+              "region": "Kerala",
+              "countryCode": "IN"
+            }
+          }
+        ],
+        "audioSources": [
+          {
+            "url": "/audio-data/room-961724/Michael%20Jackson%20-%20You%20Rock%20My%20World___2026-05-31T10-49%3A30.536Z.mp3"
+          }
+        ],
+        "globalVolume": 1,
+        "lowPassFreq": 20000,
+        "playbackState": {
+          "type": "paused",
+          "audioSource": "/audio-data/room-961724/Michael%20Jackson%20-%20You%20Rock%20My%20World___2026-05-31T10-49%3A30.536Z.mp3",
+          "trackPositionSeconds": 39.70476424153646,
+          "serverTimeToExecute": 1780224597544.5027
+        },
+        "chat": {
+          "messages": [],
+          "nextMessageId": 1
+        }
+      }
+    }
+  }
+}

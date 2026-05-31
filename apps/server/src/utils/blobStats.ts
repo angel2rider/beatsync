@@ -1,5 +1,9 @@
-import { getPublicAudioUrl, listObjectsWithPrefix } from "@/lib/r2";
+import { listFiles } from "@/lib/localStorage";
 import { globalManager } from "@/managers";
+import { stat } from "node:fs/promises";
+import { resolve } from "node:path";
+
+const DATA_DIR = process.env.AUDIO_DATA_DIR ?? "./audio-data";
 
 // Helper function to format bytes to human readable
 export function formatBytes(bytes: number): string {
@@ -12,113 +16,86 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / Math.pow(k, i)).toFixed(2)} ${sizes[i]}`;
 }
 
-// Type definitions
-interface FileInfo {
-  key: string;
-  size: string;
-  sizeBytes: number;
-  publicUrl: string;
-}
-
-interface RoomDetail {
+interface RoomStorageInfo {
   fileCount: number;
   totalSize: string;
   totalSizeBytes: number;
-  files: FileInfo[];
+  files: string[];
 }
 
 interface BlobStats {
-  error?: string;
+  activeRooms: Record<string, RoomStorageInfo>;
+  orphanedRooms: Record<string, { fileCount: number; totalSizeBytes: number; totalSize: string; files: string[] }>;
+  orphanedCount: number;
   totalObjects: number;
-  totalRooms: number;
   totalSize: string;
   totalSizeBytes: number;
-  activeRooms: Record<string, RoomDetail>;
-  orphanedRooms: Record<string, RoomDetail>;
-  orphanedCount: number;
 }
 
 export async function getBlobStats(): Promise<BlobStats> {
-  try {
-    const allObjects = await listObjectsWithPrefix("");
+  // List all room files from local storage
+  const allRoomFiles = await listFiles("room-");
 
-    // Group objects by room and calculate sizes
-    const roomsInStorage = new Map<string, { files: { Key?: string; Size?: number }[]; totalSize: number }>();
-    let totalStorageSize = 0;
+  // Group files by room
+  const roomFilesMap = new Map<string, string[]>();
+  for (const filePath of allRoomFiles) {
+    const match = /^room-([^/]+)\//.exec(filePath);
+    if (match) {
+      const roomId = match[1];
+      if (!roomFilesMap.has(roomId)) {
+        roomFilesMap.set(roomId, []);
+      }
+      roomFilesMap.get(roomId)!.push(filePath);
+    }
+  }
 
-    if (allObjects) {
-      allObjects.forEach((obj) => {
-        if (obj.Key) {
-          const match = /^room-([^/]+)\//.exec(obj.Key);
-          if (match) {
-            const roomId = match[1];
-            if (!roomsInStorage.has(roomId)) {
-              roomsInStorage.set(roomId, { files: [], totalSize: 0 });
-            }
-            const room = roomsInStorage.get(roomId)!;
-            room.files.push(obj);
-            room.totalSize += obj.Size ?? 0;
-            totalStorageSize += obj.Size ?? 0;
-          }
-        }
-      });
+  // Get active room IDs
+  const activeRoomIds = new Set<string>();
+  globalManager.forEachRoom((_room, roomId) => {
+    activeRoomIds.add(roomId);
+  });
+
+  const activeRooms: Record<string, RoomStorageInfo> = {};
+  const orphanedRooms: Record<string, RoomStorageInfo> = {};
+
+  let totalObjects = 0;
+  let totalSizeBytes = 0;
+
+  for (const [roomId, files] of roomFilesMap) {
+    let roomSizeBytes = 0;
+    for (const fileKey of files) {
+      totalObjects++;
+      // Try to get file size
+      try {
+        const filePath = resolve(DATA_DIR, fileKey);
+        const fileStat = await stat(filePath);
+        roomSizeBytes += fileStat.size;
+        totalSizeBytes += fileStat.size;
+      } catch {
+        // File might have been deleted between listing and stat
+      }
     }
 
-    // Get active rooms from server
-    const activeRoomSet = new Set(globalManager.getRoomIds());
-
-    // Separate active rooms from orphaned rooms
-    const activeRoomDetails: Record<string, RoomDetail> = {};
-    const orphanedRoomDetails: Record<string, RoomDetail> = {};
-
-    roomsInStorage.forEach((roomData, roomId) => {
-      // Extract filename from the key (room-{roomId}/{filename})
-      const files = roomData.files.map((obj) => {
-        const filename = (obj.Key ?? "").split("/").pop() ?? "";
-        return {
-          key: obj.Key ?? "",
-          size: formatBytes(obj.Size ?? 0),
-          sizeBytes: obj.Size ?? 0,
-          publicUrl: getPublicAudioUrl(roomId, filename),
-        };
-      });
-
-      const roomDetail = {
-        fileCount: roomData.files.length,
-        totalSize: formatBytes(roomData.totalSize),
-        totalSizeBytes: roomData.totalSize,
-        files: files,
-      };
-
-      // Separate active from orphaned
-      if (activeRoomSet.has(roomId)) {
-        activeRoomDetails[roomId] = roomDetail;
-      } else {
-        orphanedRoomDetails[roomId] = roomDetail;
-      }
-    });
-
-    const orphanedCount = Object.keys(orphanedRoomDetails).length;
-
-    return {
-      totalObjects: allObjects?.length ?? 0,
-      totalRooms: roomsInStorage.size,
-      totalSize: formatBytes(totalStorageSize),
-      totalSizeBytes: totalStorageSize,
-      activeRooms: activeRoomDetails,
-      orphanedRooms: orphanedRoomDetails,
-      orphanedCount,
+    const info: RoomStorageInfo = {
+      fileCount: files.length,
+      totalSize: formatBytes(roomSizeBytes),
+      totalSizeBytes: roomSizeBytes,
+      files,
     };
-  } catch (error) {
-    return {
-      error: `Failed to check blob storage: ${error instanceof Error ? error.message : String(error)}`,
-      totalObjects: 0,
-      totalRooms: 0,
-      totalSize: "0 B",
-      totalSizeBytes: 0,
-      activeRooms: {},
-      orphanedRooms: {},
-      orphanedCount: 0,
-    };
+
+    if (activeRoomIds.has(roomId)) {
+      activeRooms[roomId] = info;
+    } else {
+      orphanedRooms[roomId] = info;
+    }
   }
+
+  return {
+    activeRooms,
+    orphanedRooms,
+    orphanedCount: Object.keys(orphanedRooms).length,
+    totalObjects,
+    totalSize: formatBytes(totalSizeBytes),
+    totalSizeBytes,
+  };
 }

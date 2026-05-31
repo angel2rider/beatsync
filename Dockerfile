@@ -25,6 +25,10 @@ COPY packages/shared ./packages/shared
 # Set working directory to server app
 WORKDIR /app/apps/server
 
+# Default port; override at runtime via -e PORT=8080
 EXPOSE 8080
 ENV NODE_ENV=production
+
+# Allow runtime configuration via env vars
+#   PORT=8080   HOST=0.0.0.0   PROVIDER_URLS=...
 CMD ["bun", "start"]

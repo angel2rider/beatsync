@@ -1,0 +1,47 @@
+{
+  "timestamp": 1780224377228,
+  "data": {
+    "rooms": {
+      "123456": {
+        "clientDatas": [
+          {
+            "joinedAt": 1780224146144,
+            "username": "prestigious-otter",
+            "clientId": "gMdIA5eahlcYM6yRCZDal",
+            "isAdmin": true,
+            "isCreator": false,
+            "rtt": 0.5592618797061142,
+            "compensationMs": 16,
+            "nudgeMs": 0,
+            "position": {
+              "x": 50,
+              "y": 25
+            },
+            "lastNtpResponse": 1780224375082,
+            "location": {
+              "flagEmoji": "🇮🇳",
+              "flagSvgURL": "/flags/in.svg",
+              "city": "Thiruvananthapuram",
+              "country": "India",
+              "region": "Kerala",
+              "countryCode": "IN"
+            }
+          }
+        ],
+        "audioSources": [],
+        "globalVolume": 1,
+        "lowPassFreq": 20000,
+        "playbackState": {
+          "type": "paused",
+          "audioSource": "",
+          "serverTimeToExecute": 0,
+          "trackPositionSeconds": 0
+        },
+        "chat": {
+          "messages": [],
+          "nextMessageId": 1
+        }
+      }
+    }
+  }
+}

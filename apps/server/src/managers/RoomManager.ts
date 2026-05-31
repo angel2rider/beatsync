@@ -1,6 +1,6 @@
 import { calculateScheduleTimeMs, DEFAULT_CLIENT_RTT_MS } from "@/config";
 import { IS_DEMO_MODE } from "@/demo";
-import { deleteObjectsWithPrefix } from "@/lib/r2";
+import { deleteRoomDirectory } from "@/lib/localStorage";
 import { ChatManager } from "@/managers/ChatManager";
 import { calculateGainFromDistanceToSource } from "@/spatial";
 import { debounce } from "@/utils/debounce";
@@ -1042,8 +1042,8 @@ export class RoomManager {
 
     if (!IS_DEMO_MODE) {
       try {
-        const result = await deleteObjectsWithPrefix(`room-${this.roomId}`);
-        console.log(`✅ Room ${this.roomId} objects deleted: ${result.deletedCount}`);
+        const result = await deleteRoomDirectory(this.roomId);
+        console.log(`✅ Room ${this.roomId} local files deleted: ${result.deletedCount}`);
       } catch (error) {
         console.error(`❌ Room ${this.roomId} cleanup failed:`, error);
       }

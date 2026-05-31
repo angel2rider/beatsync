@@ -1,5 +1,5 @@
 import { IS_DEMO_MODE } from "@/demo";
-import { deleteObject, extractKeyFromUrl } from "@/lib/r2";
+import { deleteAudioFileByUrl } from "@/lib/localStorage";
 import { sendBroadcast } from "@/utils/responses";
 import { requireCanMutate } from "@/websocket/middlewares";
 import type { HandlerFunction } from "@/websocket/types";
@@ -22,7 +22,7 @@ export const handleDeleteAudioSources: HandlerFunction<ExtractWSRequestFrom["DEL
     return; // nothing to do, silent idempotency
   }
 
-  // In demo mode, skip R2 deletion — just remove from room state
+  // In demo mode, skip file deletion — just remove from room state
   if (IS_DEMO_MODE) {
     const { updated } = room.removeAudioSources(urlsToDelete);
     sendBroadcast({
@@ -36,49 +36,30 @@ export const handleDeleteAudioSources: HandlerFunction<ExtractWSRequestFrom["DEL
     return;
   }
 
-  // First, attempt to delete room-specific files from R2 storage
-  // Track which URLs were successfully deleted from R2
-  const successfullyDeletedUrls = new Set<string>();
-  const roomPrefix = `/room-${ws.data.roomId}/`;
-
-  // Process R2 deletions and track successes
-  const r2DeletionPromises = urlsToDelete.map(async (url) => {
-    // Always add non-R2 URLs (like default tracks) to successful list
-    if (!url.includes(roomPrefix)) {
-      successfullyDeletedUrls.add(url); // Just say we've processed it
-      return;
-    }
-
-    // Otherwise we need to actually delete the file from R2
-    try {
-      const key = extractKeyFromUrl(url);
-
-      if (!key) {
-        throw new Error(`Failed to extract key from URL: ${url}`);
+  // Delete files from local filesystem and track successes
+  const deletionResults = await Promise.allSettled(
+    urlsToDelete.map(async (url) => {
+      try {
+        await deleteAudioFileByUrl(url);
+        return url;
+      } catch (error) {
+        console.error(`Failed to delete local file for URL ${url}:`, error);
+        return null;
       }
+    })
+  );
 
-      await deleteObject(key);
-      console.log(`🗑️ Deleted R2 object: ${key}`);
-      successfullyDeletedUrls.add(url);
-    } catch (error) {
-      console.error(`Failed to delete R2 object for URL ${url}:`, error);
-      // Don't add to successfullyDeletedUrls - keep in room state
-    }
-  });
+  const successfullyDeletedUrls = deletionResults
+    .filter((r) => r.status === "fulfilled" && r.value !== null)
+    .map((r) => (r as PromiseFulfilledResult<string>).value);
 
-  // Wait for all R2 deletion attempts to complete
-  await Promise.all(r2DeletionPromises);
-
-  // Only remove successfully deleted URLs from the room's queue
-  const urlsToRemove = Array.from(successfullyDeletedUrls);
-
-  if (urlsToRemove.length === 0) {
-    console.log("No URLs were successfully deleted from R2, keeping all in queue");
+  if (successfullyDeletedUrls.length === 0) {
+    console.log("No local files were successfully deleted, keeping all in queue");
     return;
   }
 
   // Remove only the successfully deleted sources from room state
-  const { updated } = room.removeAudioSources(urlsToRemove);
+  const { updated } = room.removeAudioSources(successfullyDeletedUrls);
 
   // Broadcast updated queue to all clients
   sendBroadcast({

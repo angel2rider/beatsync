@@ -6,7 +6,7 @@ import { BackupManager } from "@/managers/BackupManager";
 import { globalManager } from "@/managers/GlobalManager";
 
 mockR2({
-  downloadJSON: mock(() => ({
+  readJSON: mock(() => ({
     timestamp: Date.now() - 60000,
     data: {
       rooms: {
@@ -45,7 +45,7 @@ mockR2({
       },
     },
   })),
-  getLatestFileWithPrefix: mock(() => "state-backup/backup-test.json"),
+  getLatestFile: mock(() => "state-backup/backup-test.json"),
 });
 
 describe("Restore Cleanup", () => {

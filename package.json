@@ -38,6 +38,5 @@
     "typescript": "^5.0.0"
   },
   "dependencies": {
-    "@aws-sdk/s3-request-presigner": "^3.1001.0"
   }
 }

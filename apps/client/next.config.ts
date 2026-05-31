@@ -2,6 +2,8 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   reactCompiler: true,
+  // Standalone output bundles the server for production deployment
+  output: "standalone",
   images: {
     remotePatterns: [
       {
@@ -23,6 +25,10 @@ const nextConfig: NextConfig = {
       {
         protocol: "https",
         hostname: "i.ytimg.com",
+      },
+      {
+        protocol: "https",
+        hostname: "resources.tidal.com",
       },
     ],
   },

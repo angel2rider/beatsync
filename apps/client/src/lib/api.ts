@@ -1,74 +1,37 @@
-import {
-  DiscoverRoomsType,
-  GetActiveRoomsType,
-  GetDefaultAudioType,
-  GetUploadUrlType,
-  UploadCompleteResponseType,
-  UploadCompleteType,
-  UploadUrlResponseType,
-} from "@beatsync/shared";
-import axios from "axios";
+import { DiscoverRoomsType, GetActiveRoomsType, GetDefaultAudioType } from "@beatsync/shared";
 import { getApiUrl } from "./urls";
-
-const baseAxios = axios.create({
-  get baseURL() {
-    return getApiUrl();
-  },
-});
 
 export const uploadAudioFile = async (data: { file: File; roomId: string }) => {
   try {
-    // Step 1: Get presigned upload URL from server
-    const uploadUrlRequest: GetUploadUrlType = {
-      roomId: data.roomId,
-      fileName: data.file.name,
-      contentType: data.file.type,
-    };
+    // Direct multipart upload to server
+    const formData = new FormData();
+    formData.append("file", data.file);
+    formData.append("roomId", data.roomId);
 
-    const presignedURLResponse = await baseAxios.post<UploadUrlResponseType>(
-      "/upload/get-presigned-url",
-      uploadUrlRequest
-    );
-
-    const { uploadUrl, publicUrl } = presignedURLResponse.data;
-
-    // Step 2: Upload directly to R2 using presigned URL
-    const uploadResponse = await fetch(uploadUrl, {
-      method: "PUT",
-      body: data.file,
-      headers: {
-        "Content-Type": data.file.type,
-      },
+    const uploadResponse = await fetch(`${getApiUrl()}/upload`, {
+      method: "POST",
+      body: formData,
     });
 
     if (!uploadResponse.ok) {
-      throw new Error(`Upload failed: ${uploadResponse.statusText}`);
+      const errorData = await uploadResponse.json().catch(() => null);
+      throw new Error(errorData?.message || `Upload failed: ${uploadResponse.statusText}`);
     }
 
-    // Step 3: Notify server that upload completed successfully
-    const uploadCompleteRequest: UploadCompleteType = {
-      roomId: data.roomId,
-      originalName: data.file.name,
-      publicUrl,
-    };
-
-    await baseAxios.post<UploadCompleteResponseType>("/upload/complete", uploadCompleteRequest);
+    const result = await uploadResponse.json();
 
     return {
       success: true,
-      publicUrl,
+      publicUrl: result.url,
     };
   } catch (error) {
-    if (axios.isAxiosError(error)) {
-      throw new Error(error.response?.data?.message || "Failed to upload audio file");
-    }
     throw error;
   }
 };
 
 export const fetchAudio = async (url: string) => {
   try {
-    // Direct fetch from R2 public URL - zero server bandwidth
+    // Fetch from local server
     const response = await fetch(url);
 
     if (!response.ok) {

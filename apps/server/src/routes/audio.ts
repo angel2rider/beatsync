@@ -1,54 +1,43 @@
-import { GetAudioSchema } from "@beatsync/shared";
 import { errorResponse } from "@/utils/responses";
-import type { BunServer } from "@/utils/websocket";
-import { getPublicAudioUrl } from "@/lib/r2";
+import { getAudioFilePath } from "@/lib/localStorage";
+import { exists } from "node:fs/promises";
 
-export const handleGetAudio = async (req: Request, _server: BunServer) => {
+/**
+ * Serve audio files from local filesystem.
+ * Matches URL pattern: /audio-data/room-{roomId}/{fileName}
+ */
+export async function handleServeAudioData(pathname: string): Promise<Response> {
   try {
-    // Check if it's a POST request
-    if (req.method !== "POST") {
-      return errorResponse("Method not allowed", 405);
-    }
+    // Parse the path: /audio-data/room-{roomId}/{fileName}
+    const relativePath = pathname.replace(/^\/audio-data\//, "");
+    const parts = relativePath.split("/");
 
-    // Check content type
-    const contentType = req.headers.get("content-type");
-    if (!contentType?.includes("application/json")) {
-      return errorResponse("Content-Type must be application/json", 400);
-    }
-
-    // Parse and validate the request body
-    const rawBody: unknown = await req.json();
-    const parseResult = GetAudioSchema.safeParse(rawBody);
-
-    if (!parseResult.success) {
-      return errorResponse(`Invalid request data: ${parseResult.error.message}`, 400);
-    }
-
-    const { id } = parseResult.data;
-
-    // Parse room ID and filename from the file ID
-    // ID format: "room-{roomId}/{fileName}"
-    const parts = id.split("/");
-    if (parts.length !== 2 || !parts[0].startsWith("room-")) {
-      return errorResponse("Invalid file ID format", 400);
+    if (parts.length < 2 || !parts[0].startsWith("room-")) {
+      return errorResponse("Invalid audio path", 400);
     }
 
     const roomId = parts[0].substring(5); // Remove "room-" prefix
-    const fileName = parts[1];
+    const fileName = decodeURIComponent(parts.slice(1).join("/"));
 
-    // Generate R2 public URL and redirect
-    const publicUrl = getPublicAudioUrl(roomId, fileName);
+    const filePath = getAudioFilePath(roomId, fileName);
 
-    // Return a redirect to the R2 public URL
-    return new Response(null, {
-      status: 302,
+    if (!(await exists(filePath))) {
+      return errorResponse("Audio file not found", 404);
+    }
+
+    // Use Bun.file for efficient file serving
+    const file = Bun.file(filePath);
+    const fileContentType = file.type || "audio/mpeg";
+
+    return new Response(file, {
       headers: {
-        Location: publicUrl,
+        "Content-Type": fileContentType,
         "Access-Control-Allow-Origin": "*",
+        "Cache-Control": "public, max-age=3600",
       },
     });
   } catch (error) {
-    console.error("Error handling audio request:", error);
-    return errorResponse("Failed to process audio request", 500);
+    console.error("Error serving audio:", error);
+    return errorResponse("Failed to serve audio", 500);
   }
-};
+}
