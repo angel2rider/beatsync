@@ -2,8 +2,8 @@ import type { RawSearchResponseSchema, TrackSchema } from "@beatsync/shared";
 import type { z } from "zod";
 import { ENDPOINT_MANAGER } from "@/managers/EndpointManager";
 
-// Tidal image CDN base URL
-const TIDAL_IMAGE_BASE = "https://resources.tidal.com/images";
+// Image proxy base URL (set from server startup)
+let imageProxyBase = "";
 
 /**
  * Safely convert a value to string when we expect it to be a string,
@@ -14,9 +14,21 @@ function safeString(val: unknown): string {
 }
 
 /**
- * Convert a Tidal cover UUID to image URLs at various sizes.
+ * Set the base URL for the image proxy (called from server startup).
+ * The URL should include the scheme and host, e.g. "http://152.70.71.168:8080".
  */
-function tidalCoverToImages(cover: string | null | undefined): {
+export function setImageProxyBase(baseUrl: string): void {
+  imageProxyBase = baseUrl.replace(/\/+$/, "");
+}
+
+/**
+ * Convert a Tidal cover UUID to proxy image URLs at various sizes.
+ * The proxy resolves covers via Deezer CDN (Tidal CDN is blocked).
+ */
+function tidalCoverToImages(
+  cover: string | null | undefined,
+  isrc?: string | null
+): {
   small: string;
   thumbnail: string;
   large: string;
@@ -30,11 +42,15 @@ function tidalCoverToImages(cover: string | null | undefined): {
       back: null,
     };
   }
+
+  const isrcParam = isrc ? `?isrc=${encodeURIComponent(isrc)}` : "";
+  const base = imageProxyBase || "http://localhost:8080";
+
   return {
-    small: `${TIDAL_IMAGE_BASE}/${cover}/80x80.jpg`,
-    thumbnail: `${TIDAL_IMAGE_BASE}/${cover}/160x160.jpg`,
-    large: `${TIDAL_IMAGE_BASE}/${cover}/320x320.jpg`,
-    back: `${TIDAL_IMAGE_BASE}/${cover}/640x640.jpg`,
+    small: `${base}/api/img-proxy/${cover}/80x80${isrcParam}`,
+    thumbnail: `${base}/api/img-proxy/${cover}/160x160${isrcParam}`,
+    large: `${base}/api/img-proxy/${cover}/320x320${isrcParam}`,
+    back: `${base}/api/img-proxy/${cover}/640x640${isrcParam}`,
   };
 }
 
@@ -150,9 +166,10 @@ export class MusicProviderManager {
           const artist = (tidal.artist ?? {}) as Record<string, unknown>;
           const artists = (tidal.artists ?? []) as Record<string, unknown>[];
 
-          // Extract cover UUID from album.cover or album.coverColors
+          // Extract cover UUID from album.cover
           const cover = typeof album.cover === "string" ? album.cover : undefined;
-          const images = tidalCoverToImages(cover);
+          const trackIsrc = typeof tidal.isrc === "string" ? tidal.isrc : null;
+          const images = tidalCoverToImages(cover, trackIsrc);
 
           // Determine performer (use first artist if available, fallback to artist object)
           const mainArtist = artists.find((a: Record<string, unknown>) => a.type === "MAIN");

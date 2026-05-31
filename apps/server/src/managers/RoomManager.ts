@@ -1031,7 +1031,7 @@ export class RoomManager {
   }
 
   /**
-   * Clean up room resources (e.g., R2 storage)
+   * Clean up room resources (delete local audio files)
    */
   async cleanup(): Promise<void> {
     console.log(`🧹 Starting room cleanup for room ${this.roomId}...`);

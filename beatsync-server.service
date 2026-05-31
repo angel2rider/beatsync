@@ -1,0 +1,22 @@
+[Unit]
+Description=Beatsync Server (Bun WebSocket + HTTP)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/beatsync
+ExecStart=/home/ubuntu/.bun/bin/bun /home/ubuntu/beatsync/apps/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/home/ubuntu/logs/beatsync-server.log
+StandardError=append:/home/ubuntu/logs/beatsync-server.err
+
+# Environment variables
+Environment=PORT=8080
+Environment=HOST=0.0.0.0
+Environment=AUDIO_DATA_DIR=/home/ubuntu/beatsync/audio-data
+
+[Install]
+WantedBy=multi-user.target

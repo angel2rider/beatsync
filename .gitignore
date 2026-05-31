@@ -17,3 +17,6 @@ local/
 
 .vscode/
 docs/
+
+# Local state backups (R2 migration)
+backups/

@@ -5,6 +5,8 @@ import { handleGetDefaultAudio } from "@/routes/default";
 import { handleServeAudio } from "@/routes/demoAudio";
 import { handleServeAudioData } from "@/routes/audio";
 import { handleDiscover } from "@/routes/discover";
+import { handleImageProxy } from "@/routes/imgProxy";
+import { setImageProxyBase } from "@/managers/MusicProviderManager";
 import { handleRoot } from "@/routes/root";
 import { handleStats } from "@/routes/stats";
 import { handleAudioUpload } from "@/routes/upload";
@@ -45,6 +47,11 @@ function detectPublicIp(): void {
       if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
         detectedPublicIp = ip;
         console.log(`🌐 Detected public IP: ${ip}`);
+        // Update image proxy base with the real public IP (overrides initial localhost fallback)
+        const scheme = process.env.SERVER_SECURE === "1" || process.env.SERVER_SECURE === "true" ? "https" : "http";
+        const suffix = PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
+        setImageProxyBase(`${scheme}://${ip}${suffix}`);
+        console.log(`   Image proxy updated: ${scheme}://${ip}${suffix}/api/img-proxy/...`);
       } else {
         await tryService(index + 1);
       }
@@ -58,6 +65,14 @@ function detectPublicIp(): void {
 }
 
 detectPublicIp();
+
+// Configure image proxy base URL before the server starts (avoids timing race with async IP detection)
+const isSecure = process.env.SERVER_SECURE === "1" || process.env.SERVER_SECURE === "true";
+const proxyBaseHost = process.env.SERVER_HOST ?? "localhost";
+const proxyPortSuffix = PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
+const initialProxyBase = `${isSecure ? "https" : "http"}://${proxyBaseHost}${proxyPortSuffix}`;
+setImageProxyBase(initialProxyBase);
+console.log(`   Image proxy: ${initialProxyBase}/api/img-proxy/...`);
 
 // --- Server info endpoint ---
 // Note: Not cached — detectedPublicIp may update asynchronously after startup
@@ -99,6 +114,11 @@ const server = Bun.serve<WSData>({
       // Serve audio files from local filesystem (all modes)
       if (pathname.startsWith("/audio-data/")) {
         return handleServeAudioData(pathname);
+      }
+
+      // Image proxy for album art (Tidal CDN is blocked, proxy via Deezer)
+      if (pathname.startsWith("/api/img-proxy/")) {
+        return handleImageProxy(req);
       }
 
       switch (pathname) {
