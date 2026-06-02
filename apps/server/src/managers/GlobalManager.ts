@@ -7,7 +7,7 @@ import type { DiscoverRoomsType } from "@beatsync/shared";
  * It handles room creation, deletion, and provides access to individual room managers.
  */
 
-const CLEANUP_DELAY_MS = 1000 * 60; // 60 seconds
+const CLEANUP_DELAY_MS = 1000 * 120; // 120 seconds
 export class GlobalManager {
   private rooms = new Map<string, RoomManager>();
 
