@@ -47,11 +47,14 @@ function detectPublicIp(): void {
       if (/^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(ip)) {
         detectedPublicIp = ip;
         console.log(`🌐 Detected public IP: ${ip}`);
-        // Update image proxy base with the real public IP (overrides initial localhost fallback)
-        const scheme = process.env.SERVER_SECURE === "1" || process.env.SERVER_SECURE === "true" ? "https" : "http";
-        const suffix = PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
-        setImageProxyBase(`${scheme}://${ip}${suffix}`);
-        console.log(`   Image proxy updated: ${scheme}://${ip}${suffix}/api/img-proxy/...`);
+        // Only override the image proxy base if SERVER_HOST is NOT explicitly set.
+        // When using a custom domain (e.g. sync.elricc.site), the domain-based URL is preferred.
+        if (!process.env.SERVER_HOST) {
+          const scheme = process.env.SERVER_SECURE === "1" || process.env.SERVER_SECURE === "true" ? "https" : "http";
+          const suffix = PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
+          setImageProxyBase(`${scheme}://${ip}${suffix}`);
+          console.log(`   Image proxy updated: ${scheme}://${ip}${suffix}/api/img-proxy/...`);
+        }
       } else {
         await tryService(index + 1);
       }
@@ -69,7 +72,10 @@ detectPublicIp();
 // Configure image proxy base URL before the server starts (avoids timing race with async IP detection)
 const isSecure = process.env.SERVER_SECURE === "1" || process.env.SERVER_SECURE === "true";
 const proxyBaseHost = process.env.SERVER_HOST ?? "localhost";
-const proxyPortSuffix = PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
+// When SERVER_HOST is explicitly set (custom domain via reverse proxy), omit the port suffix
+// since Nginx handles standard HTTPS (443) or HTTP (80) ports.
+// Otherwise, append the server's listen port.
+const proxyPortSuffix = process.env.SERVER_HOST ? "" : PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
 const initialProxyBase = `${isSecure ? "https" : "http"}://${proxyBaseHost}${proxyPortSuffix}`;
 setImageProxyBase(initialProxyBase);
 console.log(`   Image proxy: ${initialProxyBase}/api/img-proxy/...`);
@@ -81,7 +87,9 @@ function getServerInfo(): { serverUrl: string; wsUrl: string } {
   const hostDisplay = detectedPublicIp !== "<unknown>" ? detectedPublicIp : HOST;
   const proto = isSecure ? "https" : "http";
   const wsProto = isSecure ? "wss" : "ws";
-  const portSuffix = PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
+  // When SERVER_HOST is explicitly set (custom domain via reverse proxy), omit the port suffix
+  // since Nginx handles standard HTTPS (443) or HTTP (80) ports.
+  const portSuffix = process.env.SERVER_HOST ? "" : PORT === 80 || PORT === 443 ? "" : `:${PORT}`;
 
   // If SERVER_HOST is explicitly set, use it (for custom domains)
   const effectiveHost = process.env.SERVER_HOST ?? hostDisplay;

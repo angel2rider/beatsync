@@ -1,7 +1,16 @@
 import { R2_AUDIO_FILE_NAME_DELIMITER } from "@beatsync/shared";
+import { randomUUID } from "node:crypto";
 import { exists, mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import sanitize from "sanitize-filename";
+import {
+  deleteObject,
+  deleteObjectsWithPrefix,
+  extractKeyFromPublicUrl,
+  getPublicObjectUrl,
+  isOracleConfigured,
+  uploadObject,
+} from "@/lib/objectStorage";
 
 const DATA_DIR = process.env.AUDIO_DATA_DIR ?? "./audio-data";
 const BACKUPS_DIR = resolve(DATA_DIR, "../backups");
@@ -38,16 +47,21 @@ export function getAudioFilePath(roomId: string, fileName: string): string {
 }
 
 /**
- * Get the URL path for an audio file (served by the local server).
+ * Get the URL for an audio file.
+ * Returns Oracle Object Storage public URL if configured, otherwise local server path.
  */
 export function getAudioUrl(roomId: string, fileName: string): string {
-  // URL-encode the filename to handle special characters
+  if (isOracleConfigured()) {
+    return getPublicObjectUrl(`audio/${fileName}`);
+  }
+  // Fallback to local server path
   const encodedFileName = encodeURIComponent(fileName);
   return `/audio-data/room-${roomId}/${encodedFileName}`;
 }
 
 /**
- * Generate a unique file name for audio uploads.
+ * Generate a unique file name for local (non-Oracle) audio uploads.
+ * When Oracle is configured, callers should use generateOracleAudioKey instead.
  */
 export function generateAudioFileName(originalName: string): string {
   const extensionRaw = originalName.split(".").pop();
@@ -75,25 +89,42 @@ export function generateAudioFileName(originalName: string): string {
 }
 
 /**
- * Save audio bytes to local storage.
- * Returns the local URL path for the file.
+ * Generate a short UUID-based filename for direct uploads to Oracle.
+ * Returns a clean name like "a1b2c3d4.mp3".
+ */
+export function generateUploadFileName(originalName: string): string {
+  const extensionRaw = originalName.split(".").pop();
+  const extension = extensionRaw && extensionRaw.length > 0 ? extensionRaw : "mp3";
+  const shortId = randomUUID().replace(/-/g, "").slice(0, 8);
+  return `${shortId}.${extension}`;
+}
+
+/**
+ * Save audio bytes — uploads to Oracle Object Storage if configured, otherwise saves locally.
+ * Returns the URL for the audio file (Oracle public URL or local server path).
  */
 export async function saveAudioFile(
   bytes: Uint8Array | ArrayBuffer,
   roomId: string,
   fileName: string,
-  _contentType = "audio/mpeg"
+  contentType = "audio/mpeg"
 ): Promise<string> {
+  const body = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
+
+  if (isOracleConfigured()) {
+    const key = `audio/${fileName}`;
+    console.log(`Uploading audio to Oracle Object Storage: ${key} (${body.byteLength} bytes)`);
+    const url = await uploadObject(key, body, contentType);
+    console.log(`Uploaded to Oracle: ${url}`);
+    return url;
+  }
+
+  // Fallback: save to local filesystem
   const roomDir = getRoomDir(roomId);
   await ensureDir(roomDir);
-
-  const body = bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes;
   const filePath = resolve(roomDir, fileName);
-
   await writeFile(filePath, body);
-
-  console.log(`Saved audio file: ${filePath} (${body.byteLength} bytes)`);
-
+  console.log(`Saved audio file locally: ${filePath} (${body.byteLength} bytes)`);
   return getAudioUrl(roomId, fileName);
 }
 
@@ -184,10 +215,21 @@ export async function getSortedFiles(prefix: string, extension?: string): Promis
 }
 
 /**
- * Delete an audio file by its URL path.
- * URL format: "/audio-data/room-{roomId}/{fileName}"
+ * Delete an audio file by its URL.
+ * Supports both Oracle Object Storage URLs and legacy local /audio-data/ URLs.
  */
 export async function deleteAudioFileByUrl(url: string): Promise<void> {
+  // Try Oracle Object Storage URL first
+  if (isOracleConfigured()) {
+    const key = extractKeyFromPublicUrl(url);
+    if (key) {
+      await deleteObject(key);
+      console.log(`Deleted object from Oracle: ${key}`);
+      return;
+    }
+  }
+
+  // Fallback: try local /audio-data/ URL format
   const match = /^\/audio-data\/room-([^/]+)\/(.+)$/.exec(url);
   if (!match) {
     throw new Error(`Cannot extract room/file from URL: ${url}`);
@@ -208,10 +250,15 @@ export async function deleteAudioFileByUrl(url: string): Promise<void> {
 export async function deleteFile(key: string): Promise<void> {
   try {
     if (key.startsWith("room-")) {
-      const filePath = resolve(DATA_DIR, key);
-      if (await exists(filePath)) {
-        await rm(filePath);
-        console.log(`Deleted file: ${filePath}`);
+      if (isOracleConfigured()) {
+        await deleteObject(key);
+        console.log(`Deleted object from Oracle: ${key}`);
+      } else {
+        const filePath = resolve(DATA_DIR, key);
+        if (await exists(filePath)) {
+          await rm(filePath);
+          console.log(`Deleted file: ${filePath}`);
+        }
       }
     } else if (key.startsWith("state-backup/")) {
       const filePath = resolve(BACKUPS_DIR, key.replace(/^state-backup\//, ""));
@@ -227,11 +274,39 @@ export async function deleteFile(key: string): Promise<void> {
 }
 
 /**
- * Delete all files for a room.
+ * Delete all audio objects for a room.
+ * Uses Oracle Object Storage if configured, otherwise deletes from local filesystem.
+ * @param audioSourceUrls - The audio source URLs from the room (used for Oracle cleanup)
  */
-export async function deleteRoomDirectory(roomId: string): Promise<{ deletedCount: number }> {
-  const roomDir = getRoomDir(roomId);
+export async function deleteRoomDirectory(
+  roomId: string,
+  audioSourceUrls?: string[]
+): Promise<{ deletedCount: number }> {
   try {
+    if (isOracleConfigured()) {
+      let deletedCount = 0;
+
+      // If we have source URLs, extract Oracle keys and delete individually
+      if (audioSourceUrls && audioSourceUrls.length > 0) {
+        for (const url of audioSourceUrls) {
+          const key = extractKeyFromPublicUrl(url);
+          if (key) {
+            await deleteObject(key);
+            deletedCount++;
+          }
+        }
+      } else {
+        // Fallback: list and delete any leftover objects under audio/ prefix
+        // (only for backwards compatibility with old room-{roomId}/ keys)
+        deletedCount += await deleteObjectsWithPrefix(`room-${roomId}/`);
+      }
+
+      console.log(`Deleted ${deletedCount} objects from Oracle for room ${roomId}`);
+      return { deletedCount };
+    }
+
+    // Fallback: delete from local filesystem
+    const roomDir = getRoomDir(roomId);
     if (!(await exists(roomDir))) {
       return { deletedCount: 0 };
     }
@@ -249,7 +324,7 @@ export async function deleteRoomDirectory(roomId: string): Promise<{ deletedCoun
 
     // Remove the empty directory
     await rm(roomDir, { recursive: true, force: true });
-    console.log(`Deleted room directory: ${roomDir} (${deletedCount} files)`);
+    console.log(`Deleted room directory locally: ${roomDir} (${deletedCount} files)`);
 
     return { deletedCount };
   } catch (error) {

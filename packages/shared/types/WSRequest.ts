@@ -123,6 +123,8 @@ export const SearchMusicSchema = z.object({
   type: z.literal(ClientActionEnum.enum.SEARCH_MUSIC),
   query: z.string(),
   offset: z.number().min(0).default(0).optional(),
+  /** Monotonically increasing request sequence number — used by client to ignore stale responses */
+  seq: z.number().optional(),
 });
 
 export const StreamMusicSchema = z.object({

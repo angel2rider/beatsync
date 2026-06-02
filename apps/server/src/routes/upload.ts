@@ -1,5 +1,6 @@
 import type { BunServer } from "@/utils/websocket";
-import { generateAudioFileName, saveAudioFile } from "@/lib/localStorage";
+import { generateAudioFileName, generateUploadFileName, saveAudioFile } from "@/lib/localStorage";
+import { isOracleConfigured } from "@/lib/objectStorage";
 import { globalManager } from "@/managers";
 import { errorResponse, jsonResponse, sendBroadcast } from "@/utils/responses";
 
@@ -74,14 +75,18 @@ export const handleAudioUpload = async (req: Request, server: BunServer) => {
     }
 
     // Generate unique filename
-    const uniqueFileName = generateAudioFileName(originalFileName);
+    const useOracleName = isOracleConfigured();
+    const uniqueFileName = useOracleName
+      ? generateUploadFileName(originalFileName)
+      : generateAudioFileName(originalFileName);
 
-    // Save to local filesystem
+    // Save to storage (Oracle or local)
     console.log(`Saving uploaded audio: room-${roomId}/${uniqueFileName} (${fileBuffer.byteLength} bytes)`);
     const localUrl = await saveAudioFile(fileBuffer, roomId, uniqueFileName, fileMimeType);
 
-    // Add audio source to room
-    const sources = room.addAudioSource({ url: localUrl });
+    // Add audio source to room with original name for UI display
+    const cleanName = originalFileName.replace(/\.[^/.]+$/, "");
+    const sources = room.addAudioSource({ url: localUrl, name: cleanName });
 
     console.log(`✅ Audio upload completed - broadcasting to room ${roomId}`);
 

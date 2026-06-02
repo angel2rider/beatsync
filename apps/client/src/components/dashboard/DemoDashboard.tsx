@@ -62,7 +62,7 @@ const DemoTrackSelector = () => {
                 : "text-neutral-400 bg-neutral-800 hover:bg-neutral-700 hover:text-neutral-200"
             )}
           >
-            {extractFileNameFromUrl(source.source.url)}
+            {source.source.name || extractFileNameFromUrl(source.source.url)}
           </button>
         );
       })}

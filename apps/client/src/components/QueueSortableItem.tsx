@@ -237,7 +237,7 @@ export const QueueSortableItem = ({
               isLoading && "opacity-60"
             )}
           >
-            {extractFileNameFromUrl(sourceState.source.url)}
+            {sourceState.source.name || extractFileNameFromUrl(sourceState.source.url)}
             {isError && sourceState.error && <span className="text-xs text-red-400 ml-2">({sourceState.error})</span>}
           </div>
         </div>

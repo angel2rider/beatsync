@@ -15,6 +15,8 @@ export const Player = () => {
   const skipToPreviousTrack = useGlobalStore((state) => state.skipToPreviousTrack);
   const isShuffled = useGlobalStore((state) => state.isShuffled);
   const toggleShuffle = useGlobalStore((state) => state.toggleShuffle);
+  const repeatMode = useGlobalStore((state) => state.repeatMode);
+  const toggleRepeat = useGlobalStore((state) => state.toggleRepeat);
   const trackDuration = useGlobalStore((state) => state.duration);
 
   // Local state for slider
@@ -230,10 +232,24 @@ export const Player = () => {
           >
             <SkipForward className="w-7 h-7 md:w-5 md:h-5 fill-current" />
           </button>
-          <button className="text-gray-400 hover:text-white transition-colors cursor-default   hover:scale-105 duration-200">
+          <button
+            className={cn(
+              "text-gray-400 hover:text-white transition-colors cursor-pointer hover:scale-105 duration-200",
+              repeatMode !== "off" && "text-primary-400",
+              !canMutate && "opacity-50 cursor-not-allowed"
+            )}
+            onClick={() => {
+              if (canMutate) toggleRepeat();
+            }}
+          >
             <div className="relative">
-              <Repeat className="w-4 h-4 relative text-primary-400" />
-              <div className="absolute w-1 h-1 bg-green-500 rounded-full bottom-0 top-4.5 left-1/2 transform -translate-x-1/2 translate-y-1/2"></div>
+              <Repeat className={cn("size-4 relative", repeatMode !== "off" ? "text-primary-400" : "text-current")} />
+              {repeatMode === "one" && (
+                <span className="absolute -top-1 -right-1 text-[7px] font-bold text-primary-400 leading-none">1</span>
+              )}
+              {repeatMode !== "off" && (
+                <div className="absolute w-1 h-1 bg-green-500 rounded-full bottom-0 top-4.5 left-1/2 transform -translate-x-1/2 translate-y-1/2"></div>
+              )}
             </div>
           </button>
         </div>

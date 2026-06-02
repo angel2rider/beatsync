@@ -1,5 +1,5 @@
 import { IS_DEMO_MODE } from "@/demo";
-import { generateAudioFileName, saveAudioFile } from "@/lib/localStorage";
+import { saveAudioFile } from "@/lib/localStorage";
 import { globalManager } from "@/managers";
 import { MUSIC_PROVIDER_MANAGER } from "@/managers/MusicProviderManager";
 import { sendBroadcast } from "@/utils/responses";
@@ -55,8 +55,8 @@ export const handleStreamMusic: HandlerFunction<ExtractWSRequestFrom["STREAM_MUS
       throw new Error(`Failed to download audio: ${response.status}`);
     }
 
-    // Generate a unique filename
-    const fileName = generateAudioFileName(`${originalName}.mp3`);
+    // Use the track ID as the filename for a clean, globally unique name
+    const fileName = `${message.trackId}.mp3`;
 
     // Get audio bytes
     const arrayBuffer = await response.arrayBuffer();
@@ -64,12 +64,12 @@ export const handleStreamMusic: HandlerFunction<ExtractWSRequestFrom["STREAM_MUS
     // Get content type from response headers
     const contentType = response.headers.get("content-type") ?? "audio/mpeg";
 
-    // Save to local filesystem
-    console.log(`Saving audio to local storage: room-${roomId}/${fileName}`);
+    // Save to storage (Oracle Object Storage or local filesystem)
+    console.log(`Saving audio: ${fileName} (${arrayBuffer.byteLength} bytes)`);
     const localUrl = await saveAudioFile(arrayBuffer, roomId, fileName, contentType);
 
-    // Add the audio source to the room
-    const sources = room.addAudioSource({ url: localUrl });
+    // Add the audio source to the room with the track name for UI display
+    const sources = room.addAudioSource({ url: localUrl, name: originalName });
 
     console.log(`Successfully saved track locally: ${localUrl}`);
     console.log(`Broadcasting new audio sources to room ${roomId}: ${sources.length} total sources`);

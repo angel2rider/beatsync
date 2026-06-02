@@ -10,7 +10,7 @@ export const useDocumentTitle = () => {
   useEffect(() => {
     const track = getSelectedTrack();
     if (isPlaying && track) {
-      const songName = extractFileNameFromUrl(track.source.url);
+      const songName = track.source.name || extractFileNameFromUrl(track.source.url);
       document.title = `${songName}`;
     } else {
       document.title = "Beatsync";

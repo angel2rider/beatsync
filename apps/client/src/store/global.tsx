@@ -57,6 +57,45 @@ enum AudioPlayerError {
 
 import { z } from "zod";
 
+/**
+ * Client-side search result cache: LRU with 60s TTL.
+ * Used to show instant results when the user re-searches a query.
+ */
+class ClientSearchCache {
+  private cache = new Map<string, { results: SearchResponseType; expiresAt: number }>();
+  private maxEntries = 20;
+  private ttlMs = 60_000;
+
+  get(query: string): SearchResponseType | null {
+    const k = query.toLowerCase().trim();
+    const entry = this.cache.get(k);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(k);
+      return null;
+    }
+    this.cache.delete(k);
+    this.cache.set(k, entry);
+    return entry.results;
+  }
+
+  set(query: string, results: SearchResponseType): void {
+    const k = query.toLowerCase().trim();
+    this.cache.delete(k);
+    this.cache.set(k, { results, expiresAt: Date.now() + this.ttlMs });
+    if (this.cache.size > this.maxEntries) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest) this.cache.delete(oldest);
+    }
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+const clientSearchCache = new ClientSearchCache();
+
 // Discriminated union for AudioSourceState using zod
 export const AudioSourceStateSchema = z.discriminatedUnion("status", [
   z.object({
@@ -131,6 +170,7 @@ interface GlobalStateValues {
 
   // Shuffle state
   isShuffled: boolean;
+  repeatMode: "off" | "one" | "all";
   reconnectionInfo: {
     isReconnecting: boolean;
     currentAttempt: number;
@@ -150,6 +190,9 @@ interface GlobalStateValues {
 
   // Stream job tracking
   activeStreamJobs: number;
+
+  // Search request sequence (monotonically increasing, used to ignore stale responses)
+  searchSeq: number;
 
   // Metronome
   isMetronomeActive: boolean;
@@ -197,6 +240,7 @@ interface GlobalState extends GlobalStateValues {
   pauseAudio: (data: { when: number }) => void;
   getCurrentTrackPosition: () => number;
   toggleShuffle: () => void;
+  toggleRepeat: () => void;
   skipToNextTrack: (isAutoplay?: boolean) => void;
   skipToPreviousTrack: () => void;
   getCurrentGainValue: () => number;
@@ -218,6 +262,10 @@ interface GlobalState extends GlobalStateValues {
   setHasMoreResults: (hasMore: boolean) => void;
   clearSearchResults: () => void;
   loadMoreSearchResults: () => void;
+
+  // Search seq methods
+  getNextSearchSeq: () => number;
+  getClientSearchCache: () => typeof clientSearchCache;
 
   // Stream job methods
   setActiveStreamJobs: (count: number) => void;
@@ -248,8 +296,9 @@ const initialState: GlobalStateValues = {
   playbackOffset: 0,
   selectedAudioUrl: "",
 
-  // Spatial audio
+  // Playback mode
   isShuffled: false,
+  repeatMode: "off" as const,
   isSpatialAudioEnabled: false,
   isDraggingListeningSource: false,
   listeningSourcePosition: { x: GRID.SIZE / 2, y: GRID.SIZE / 2 },
@@ -296,6 +345,9 @@ const initialState: GlobalStateValues = {
   searchQuery: "",
   searchOffset: 0,
   hasMoreResults: false,
+
+  // Search request sequence
+  searchSeq: 0,
 
   // Stream job tracking
   activeStreamJobs: 0,
@@ -865,7 +917,10 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
         }
 
         console.warn(`Cannot play audio: Track still loading: ${data.audioSource}`);
-        toast.warning(`"${extractFileNameFromUrl(data.audioSource)}" not loaded yet...`, { id: "schedulePlay" });
+        const sourceName = state.audioSources.find((as) => as.source.url === data.audioSource)?.source.name;
+        toast.warning(`"${sourceName || extractFileNameFromUrl(data.audioSource)}" not loaded yet...`, {
+          id: "schedulePlay",
+        });
 
         const { socket } = getSocket(state);
         setTimeout(() => {
@@ -1188,11 +1243,25 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
           const endedNaturally = Math.abs(audioContext.currentTime - expectedEndTime) < 0.5;
 
           if (endedNaturally) {
-            console.log("Track ended naturally, skipping to next via autoplay.");
-            // Set currentTime to duration, as playback fully completed
-            // We don't set isPlaying false here, let skipToNextTrack handle state transition
+            console.log("Track ended naturally.");
             set({ currentTime: currentState.duration });
-            currentState.skipToNextTrack(true); // Trigger autoplay skip
+
+            // Respect repeat mode
+            if (currentState.repeatMode === "one") {
+              // Replay the same track from the beginning
+              console.log("[Repeat] Replaying current track (repeat one)");
+              const audioIndex = currentState.findAudioIndexByUrl(currentState.selectedAudioUrl);
+              if (audioIndex !== null) {
+                currentState.playAudio({ offset: 0, when: 0, audioIndex });
+              }
+            } else if (currentState.repeatMode === "all" || currentState.audioSources.length > 1) {
+              // Skip to next track (loops around for repeat all)
+              currentState.skipToNextTrack(true);
+            } else {
+              // No repeat, single track — stop
+              console.log("[Repeat] Off, single track — stopping.");
+              set({ isPlaying: false, currentTime: 0 });
+            }
           } else {
             console.log(
               "onended fired but not deemed a natural end (likely manual stop/skip). State should be handled elsewhere."
@@ -1358,6 +1427,12 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
     },
 
     toggleShuffle: () => set((state) => ({ isShuffled: !state.isShuffled })),
+
+    toggleRepeat: () =>
+      set((state) => {
+        const next = state.repeatMode === "off" ? "all" : state.repeatMode === "all" ? "one" : "off";
+        return { repeatMode: next };
+      }),
 
     setIsSpatialAudioEnabled: (isEnabled) => set({ isSpatialAudioEnabled: isEnabled }),
 
@@ -1542,6 +1617,14 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
     setReconnectionInfo: (info) => set({ reconnectionInfo: info }),
     setPlaybackControlsPermissions: (permissions) => set({ playbackControlsPermissions: permissions }),
 
+    // Search seq
+    getNextSearchSeq: () => {
+      const state = get();
+      const seq = state.searchSeq + 1;
+      set({ searchSeq: seq });
+      return seq;
+    },
+
     // Search methods
     setSearchResults: (results, append = false) => {
       if (append && results?.type === "success") {
@@ -1567,8 +1650,20 @@ export const useGlobalStore = create<GlobalState>((set, get) => {
           return;
         }
       }
+
+      // Cache successful new search results (not pagination append)
+      if (!append && results?.type === "success") {
+        const q = get().searchQuery;
+        if (q) {
+          clientSearchCache.set(q, results);
+        }
+      }
+
       set({ searchResults: results });
     },
+
+    // Expose cache for other components
+    getClientSearchCache: () => clientSearchCache,
     setIsSearching: (isSearching) => set({ isSearching }),
     setIsLoadingMoreResults: (isLoading) => set({ isLoadingMoreResults: isLoading }),
     setSearchQuery: (query) => set({ searchQuery: query }),

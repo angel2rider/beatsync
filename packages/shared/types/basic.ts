@@ -16,6 +16,7 @@ export type PositionType = z.infer<typeof PositionSchema>;
 
 export const AudioSourceSchema = z.object({
   url: z.string(),
+  name: z.string().optional(),
 });
 export type AudioSourceType = z.infer<typeof AudioSourceSchema>;
 

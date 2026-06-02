@@ -214,9 +214,24 @@ export const WebSocketManager = ({ roomId, username }: WebSocketManagerProps) =>
           processMetronomeConfig(scheduledAction);
         }
       } else if (response.type === "SEARCH_RESPONSE") {
+        const state = useGlobalStore.getState();
+        const {
+          setSearchResults,
+          setIsSearching,
+          setIsLoadingMoreResults,
+          setHasMoreResults,
+          isLoadingMoreResults,
+          searchSeq,
+        } = state;
+
+        // Ignore stale responses: if the response has a seq that's older than current searchSeq,
+        // it means a newer search was issued before this response arrived.
+        if (response.seq !== undefined && response.seq < searchSeq) {
+          console.log(`Ignoring stale search response (seq ${response.seq} < current ${searchSeq})`);
+          return;
+        }
+
         console.log("Received search response:", response);
-        const { setSearchResults, setIsSearching, setIsLoadingMoreResults, setHasMoreResults, isLoadingMoreResults } =
-          useGlobalStore.getState();
 
         // Determine if this is pagination or new search
         const isAppending = isLoadingMoreResults;

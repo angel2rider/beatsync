@@ -1042,8 +1042,10 @@ export class RoomManager {
 
     if (!IS_DEMO_MODE) {
       try {
-        const result = await deleteRoomDirectory(this.roomId);
-        console.log(`✅ Room ${this.roomId} local files deleted: ${result.deletedCount}`);
+        // Pass audio source URLs so Oracle can delete by key extraction
+        const audioUrls = this.audioSources.map((s) => s.url);
+        const result = await deleteRoomDirectory(this.roomId, audioUrls);
+        console.log(`✅ Room ${this.roomId} audio files deleted: ${result.deletedCount}`);
       } catch (error) {
         console.error(`❌ Room ${this.roomId} cleanup failed:`, error);
       }

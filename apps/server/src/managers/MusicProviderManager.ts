@@ -6,6 +6,63 @@ import { ENDPOINT_MANAGER } from "@/managers/EndpointManager";
 let imageProxyBase = "";
 
 /**
+ * Simple in-memory search cache with TTL and LRU eviction.
+ * Stores raw search responses keyed by normalized query+offset.
+ */
+class SearchCache {
+  private cache = new Map<string, { data: unknown; expiresAt: number }>();
+  private maxEntries: number;
+  private ttlMs: number;
+
+  constructor(maxEntries = 50, ttlMs = 30_000) {
+    this.maxEntries = maxEntries;
+    this.ttlMs = ttlMs;
+  }
+
+  private makeKey(query: string, offset: number): string {
+    return `${query.toLowerCase().trim()}|${offset}`;
+  }
+
+  get(query: string, offset: number): unknown {
+    const key = this.makeKey(query, offset);
+    const entry = this.cache.get(key);
+    if (!entry) return null;
+    if (Date.now() > entry.expiresAt) {
+      this.cache.delete(key);
+      return null;
+    }
+    // Move to end (most recently used)
+    this.cache.delete(key);
+    this.cache.set(key, entry);
+    return entry.data;
+  }
+
+  set(query: string, offset: number, data: unknown): void {
+    const key = this.makeKey(query, offset);
+    this.cache.delete(key);
+    this.cache.set(key, { data, expiresAt: Date.now() + this.ttlMs });
+    // Evict oldest if over limit
+    if (this.cache.size > this.maxEntries) {
+      const oldestKey = this.cache.keys().next().value;
+      if (oldestKey) this.cache.delete(oldestKey);
+    }
+  }
+
+  invalidate(query: string): void {
+    const prefix = query.toLowerCase().trim();
+    for (const key of this.cache.keys()) {
+      if (key.startsWith(prefix + "|")) this.cache.delete(key);
+    }
+  }
+
+  clear(): void {
+    this.cache.clear();
+  }
+}
+
+const searchCache = new SearchCache();
+
+/**
  * Safely convert a value to string when we expect it to be a string,
  * falling back to empty string if it's not a primitive string type.
  */
@@ -122,14 +179,25 @@ export class MusicProviderManager {
    * items from Tidal's /v1/search/tracks endpoint.
    */
   async search(query: string, offset = 0): Promise<z.infer<typeof RawSearchResponseSchema>> {
-    try {
-      const { response } = await ENDPOINT_MANAGER.fetchWithFailover("/search/", {
-        s: query,
-        offset: String(offset),
-        limit: "50",
-      });
+    // Check cache first
+    const cached = searchCache.get(query, offset);
+    if (cached) {
+      return cached as z.infer<typeof RawSearchResponseSchema>;
+    }
 
-      const raw = (await response.json()) as unknown;
+    try {
+      // Reduced maxAttempts for search: try at most 2 endpoints (no point retrying 8x for a user-facing search)
+      const { response } = await ENDPOINT_MANAGER.fetchWithFailover(
+        "/search/",
+        {
+          s: query,
+          offset: String(offset),
+          limit: "50",
+        },
+        2
+      );
+
+      const raw: unknown = await response.json();
 
       // hifi-api wraps responses as { version: "2.10", data: <TidalResponse> }
       // Items are directly in the items array (not wrapped in { item: ... })
@@ -219,7 +287,7 @@ export class MusicProviderManager {
           };
         });
 
-      return {
+      const result: z.infer<typeof RawSearchResponseSchema> = {
         data: {
           tracks: {
             limit: tidalData.limit ?? 50,
@@ -229,6 +297,11 @@ export class MusicProviderManager {
           },
         },
       };
+
+      // Cache the result
+      searchCache.set(query, offset, result);
+
+      return result;
     } catch (error) {
       throw new Error(`Search failed: ${error instanceof Error ? error.message : "Unknown error"}`);
     }

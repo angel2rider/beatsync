@@ -17,6 +17,8 @@ export const handleSearchMusic: HandlerFunction<ExtractWSRequestFrom["SEARCH_MUS
           type: "success",
           response: data,
         },
+        // Echo back the request seq for stale response detection
+        seq: message.seq,
       },
     });
   } catch (error) {
@@ -29,6 +31,7 @@ export const handleSearchMusic: HandlerFunction<ExtractWSRequestFrom["SEARCH_MUS
           type: "error",
           message: "An error occurred while searching",
         },
+        seq: message.seq,
       },
     });
   }

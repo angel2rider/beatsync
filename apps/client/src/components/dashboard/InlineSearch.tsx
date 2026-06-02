@@ -21,14 +21,17 @@ export function InlineSearch() {
   const [showCheckmark, setShowCheckmark] = React.useState(false);
   const isMobile = useIsMobile();
   const blurTimeoutRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const debounceTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const canMutate = useCanMutate();
   const socket = useGlobalStore((state) => state.socket);
   const setIsSearching = useGlobalStore((state) => state.setIsSearching);
   const setSearchQuery = useGlobalStore((state) => state.setSearchQuery);
   const setSearchOffset = useGlobalStore((state) => state.setSearchOffset);
   const setHasMoreResults = useGlobalStore((state) => state.setHasMoreResults);
+  const setSearchResults = useGlobalStore((state) => state.setSearchResults);
   const searchResults = useGlobalStore((state) => state.searchResults);
   const isSearching = useGlobalStore((state) => state.isSearching);
+  const getNextSearchSeq = useGlobalStore((state) => state.getNextSearchSeq);
   const activeStreamJobs = useGlobalStore((state) => state.activeStreamJobs);
   const { register, handleSubmit, setFocus, watch, reset } = useForm<SearchForm>({
     defaultValues: { query: "" },
@@ -37,12 +40,77 @@ export function InlineSearch() {
   // eslint-disable-next-line react-hooks/incompatible-library -- react-hook-form's watch() API is incompatible with React Compiler memoization by design
   const watchedQuery = watch("query");
 
-  // Cleanup timeout on unmount
+  // Stable ref to the actual search function so the debounce timer always calls the latest version
+  const doSearchRef = React.useRef<((query: string) => void) | undefined>(undefined);
+
+  doSearchRef.current = (query: string) => {
+    if (!canMutate || !socket || !query.trim()) return;
+
+    // Check client-side cache first
+    const getClientSearchCache = useGlobalStore.getState().getClientSearchCache;
+    const cached = getClientSearchCache().get(query);
+    if (cached) {
+      setSearchOffset(0);
+      setHasMoreResults(true);
+      setIsSearching(false);
+      setSearchQuery(query);
+      setSearchResults(cached);
+      setShowResults(true);
+      console.log("Using cached search results for:", query);
+      return;
+    }
+
+    console.log("Sending search request", query);
+
+    const seq = getNextSearchSeq();
+
+    // Reset pagination state for new search and set loading state
+    setSearchOffset(0);
+    setHasMoreResults(false);
+    setIsSearching(true);
+    setSearchQuery(query);
+    setShowResults(true);
+
+    sendWSRequest({
+      ws: socket,
+      request: {
+        type: ClientActionEnum.enum.SEARCH_MUSIC,
+        query,
+        seq,
+      },
+    });
+  };
+
+  // Debounced auto-search on keystroke: 350ms after the user stops typing
+  React.useEffect(() => {
+    const q = watchedQuery?.trim();
+    if (!q) return;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    debounceTimerRef.current = setTimeout(() => {
+      doSearchRef.current?.(q);
+    }, 350);
+
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, [watchedQuery]);
+
+  // Cleanup timeouts on unmount
   React.useEffect(() => {
     const ref = blurTimeoutRef;
+    const debounceRef = debounceTimerRef;
     return () => {
       if (ref.current) {
         clearTimeout(ref.current);
+      }
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
       }
     };
   }, []);
@@ -90,33 +158,8 @@ export function InlineSearch() {
   }, [watchedQuery]);
 
   const onSubmit = (data: SearchForm) => {
-    if (!canMutate) {
-      return;
-    }
-
-    if (!socket) {
-      console.error("WebSocket not connected");
-      return;
-    }
-
-    if (!data.query || !data.query.trim()) return;
-
-    console.log("Sending search request", data.query);
-
-    // Reset pagination state for new search and set loading state
-    setSearchOffset(0);
-    setHasMoreResults(false);
-    setIsSearching(true);
-    setSearchQuery(data.query);
-    setShowResults(true);
-
-    sendWSRequest({
-      ws: socket,
-      request: {
-        type: ClientActionEnum.enum.SEARCH_MUSIC,
-        query: data.query,
-      },
-    });
+    // Used only for Enter key submission
+    doSearchRef.current?.(data.query);
   };
 
   const handleTrackSelection = () => {
